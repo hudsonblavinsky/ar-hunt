@@ -14,10 +14,10 @@
   const SHOT_COOLDOWN_MS = 380;
 
   const SPECIES = {
-    rabbit: { name: "Rabbit", points: 100, window: 3.2, k: 0.13, weight: 55, speed: 0.9 },
-    fox:    { name: "Fox",    points: 250, window: 2.4, k: 0.17, weight: 30, speed: 1.3 },
-    deer:   { name: "Deer",   points: 400, window: 2.0, k: 0.42, weight: 15, speed: 1.6 },
-    stag:   { name: "Silver stag", points: 1500, window: 1.3, k: 0.48, weight: 0, speed: 2.2 },
+    rabbit: { name: "Rabbit", points: 100, window: 3.2, k: 0.2, weight: 55, speed: 0.9 },
+    fox:    { name: "Fox",    points: 250, window: 2.4, k: 0.26, weight: 30, speed: 1.3 },
+    deer:   { name: "Deer",   points: 400, window: 2.0, k: 0.55, weight: 15, speed: 1.6 },
+    stag:   { name: "Silver stag", points: 1500, window: 1.3, k: 0.6, weight: 0, speed: 2.2 },
   };
   const MASK_COLORS = { trunk: "#a463f2", bush: "#e0483c", rock: "#8fa3b8", bench: "#e8a33c", fence: "#f0d34a" };
 
@@ -177,14 +177,45 @@
     for (const [k, v] of list) { if ((r -= v.weight) <= 0) return k; }
     return "rabbit";
   }
-  function sizeFor(sp, feetN) { return Math.max(0.045, SPECIES[sp].k * Math.max(0.08, feetN - HORIZON)); }
+  function sizeFor(sp, feetN) { return Math.max(sp === "rabbit" ? 0.06 : 0.08, SPECIES[sp].k * Math.max(0.08, feetN - HORIZON)); }
 
   function spawn(now) {
     const t = (now - (S.roundEnd - ROUND_SECONDS * 1000)) / 1000;
     const sp = pickSpecies(t);
+    // Try a few spots; keep the first where the animal is mostly visible once it's out.
+    let a = null, bestA = null, bestV = -1;
+    for (let i = 0; i < 8 && !a; i++) {
+      const cand = candidate(sp, i >= 6);
+      const v = visibleFraction(cand);
+      if (v >= 0.6) a = cand; else if (v > bestV) { bestV = v; bestA = cand; }
+    }
+    a = a || bestA;
+    S.animals.push(a);
+    if (sp === "stag") toast("✨ SILVER STAG ✨", "#dfe8f2", 900);
+  }
+  // Fraction of the animal's body (sampled from its hitbox) not covered by closer landmarks.
+  function visibleFraction(a) {
+    const c = cover(), occ = occludersFor(a, S.landmarks.map((l) => ({ l })));
+    if (!occ.length) return 1;
+    const xr = c.sh / c.sw, poses = a.mode === "dash" ? [0.25, 0.5, 0.75] : [1];
+    let seen = 0, total = 0;
+    for (const u of poses) {
+      const bx = a.x0 + (a.x1 - a.x0) * u, by = a.y0 + (a.y1 - a.y0) * u;
+      for (const [ex, ey, rx, ry] of animalHitboxes(a.sp)) {
+        for (const [ox, oy] of [[0, 0], [0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]]) {
+          const nx = bx + (ex + ox * rx) * a.h * xr * a.face, ny = by + (ey + oy * ry) * a.h;
+          if (nx < 0 || nx > 1 || ny < 0 || ny > 1) continue;
+          total++;
+          if (!occ.some(({ l }) => ptInPoly(nx, ny, l.poly))) seen++;
+        }
+      }
+    }
+    return total ? seen / total : 0;
+  }
+  function candidate(sp, open) {
     const usable = S.landmarks.filter((l) => polyBottom(l) > HORIZON + 0.05 && l.box.h > 0.04);
     let a;
-    if (usable.length) {
+    if (usable.length && !open) {
       // Prefer big cover, but mix it up.
       const l = usable[Math.floor(Math.pow(Math.random(), 1.6) * usable.length)];
       const cx = l.box.x + l.box.w / 2, bottom = polyBottom(l);
@@ -211,11 +242,10 @@
       }
       a = mkAnimal(sp, mode, l, x0, y0, x1, y1, side);
     } else {
-      const feet = rand(0.68, 0.86), side = Math.random() < 0.5 ? 1 : -1;
+      const feet = rand(0.72, 0.92), side = Math.random() < 0.5 ? 1 : -1;
       a = mkAnimal(sp, "dash", null, side > 0 ? -0.12 : 1.12, feet, side > 0 ? 1.12 : -0.12, feet, side);
     }
-    S.animals.push(a);
-    if (sp === "stag") toast("✨ SILVER STAG ✨", "#dfe8f2", 900);
+    return a;
   }
   function mkAnimal(sp, mode, anchor, x0, y0, x1, y1, side) {
     const spec = SPECIES[sp];
