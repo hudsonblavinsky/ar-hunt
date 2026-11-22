@@ -593,7 +593,11 @@
     audioInit();
     const img = new Image();
     img.onload = () => { S.source = "photo"; S.img = img; stopCamera(); beginRound(); };
-    img.onerror = () => alert("Couldn't load that image.");
+    img.onerror = () => {
+      const m = /^\/demo\/([\w-]+)\.jpg$/.exec(src); // static demo missing -> same-origin proxy
+      if (m && !img.dataset.retried) { img.dataset.retried = 1; img.src = "/api/img?name=" + m[1]; return; }
+      alert("Couldn't load that image.");
+    };
     img.src = src;
   }
   function stopCamera() {
