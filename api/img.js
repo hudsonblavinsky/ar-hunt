@@ -14,9 +14,13 @@ const DEMOS = {
   ],
 };
 
+// Also: GET /api/img?u=<pd.w.org image URL> for the CC0 wildlife photos the sprites are cut from.
+const ALLOWED = /^https:\/\/pd\.w\.org\/\d{4}\/\d{2}\/[\w.\-]+\.(jpe?g|png)$/;
+
 module.exports = async function handler(req, res) {
-  const list = DEMOS[(req.query && req.query.name) || ""];
-  if (!list) return res.status(404).json({ error: "unknown demo" });
+  const q = req.query || {};
+  const list = q.u ? (ALLOWED.test(q.u) ? [q.u] : null) : DEMOS[q.name || ""];
+  if (!list) return res.status(404).json({ error: "unknown image" });
   for (const url of list) {
     try {
       const r = await fetch(url);

@@ -3,110 +3,164 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<meta name="theme-color" content="#14110d" />
-<title>One Shot — AR Hunt</title>
+<meta name="theme-color" content="#0f0e0b" />
+<title>One Shot — AR Hunt, powered by Roboflow</title>
 <style>
-  :root { --ink:#f4ead8; --dim:#b9ab90; --accent:#e8a33c; --red:#e0483c; --bg:#14110d; --panel:rgba(20,17,13,.82); }
+  :root { --ink:#f3ece0; --dim:#aea592; --accent:#e9a23b; --red:#e0483c; --rf:#8a5cf6; --bg:#0f0e0b; --panel:rgba(15,14,11,.86); --line:rgba(255,255,255,.12); }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); overflow:hidden;
-    font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; touch-action:none; user-select:none; -webkit-user-select:none; }
-  #stage { position:fixed; inset:0; }
-  canvas#view { position:absolute; inset:0; width:100%; height:100%; display:block; }
-  video { display:none; }
-
-  /* HUD */
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; touch-action:none; user-select:none; -webkit-user-select:none; }
+  canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  video { position:fixed; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
   #hud { position:fixed; left:0; right:0; top:0; display:none; justify-content:space-between; align-items:flex-start;
-    padding: calc(env(safe-area-inset-top) + 10px) 14px 0; pointer-events:none; font-weight:800; text-shadow:0 2px 6px rgba(0,0,0,.7); }
-  #hud .big { font-size:30px; line-height:1; letter-spacing:.5px; }
-  #hud .small { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:1.5px; }
+    padding: calc(env(safe-area-inset-top) + 10px) 14px 0; pointer-events:none; font-weight:800; text-shadow:0 2px 8px rgba(0,0,0,.8); }
+  #hud .big { font-size:30px; line-height:1; }
+  #hud .small { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:1.6px; }
   #streak { color:var(--accent); }
   #timer.low { color:var(--red); }
   #toolbar { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom) + 12px); display:none; gap:8px; }
-  .chip { pointer-events:auto; background:var(--panel); color:var(--ink); border:1px solid rgba(255,255,255,.15);
-    border-radius:999px; padding:8px 12px; font:600 13px inherit; font-family:inherit; cursor:pointer; }
-  .chip.on { background:var(--accent); color:#1b1408; }
-
-  /* Crosshair */
+  .chip { pointer-events:auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:999px;
+    padding:8px 12px; font:600 12px inherit; font-family:inherit; cursor:pointer; }
+  .chip.on { background:var(--rf); border-color:var(--rf); color:#fff; }
   #reticle { position:fixed; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; pointer-events:none; display:none; }
   #reticle svg { width:100%; height:100%; overflow:visible; filter: drop-shadow(0 0 2px rgba(0,0,0,.9)); }
-  #reticle.cool line, #reticle.cool circle { stroke:#9a9a9a; }
-
-  #toast { position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); font-weight:900; font-size:34px;
-    letter-spacing:1px; text-shadow:0 3px 10px rgba(0,0,0,.85); pointer-events:none; opacity:0; transition:opacity .2s; text-align:center; white-space:nowrap; }
-  #status { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 18px); transform:translateX(-50%);
-    background:var(--panel); padding:8px 14px; border-radius:999px; font-size:13px; color:var(--dim); display:none; pointer-events:none; white-space:nowrap; }
-
-  /* Screens */
+  #reticle.cool { opacity:.45; }
+  #toast { position:fixed; left:50%; top:36%; transform:translate(-50%,-50%); font-weight:900; font-size:30px; letter-spacing:.5px;
+    text-shadow:0 3px 12px rgba(0,0,0,.9); pointer-events:none; opacity:0; transition:opacity .25s; text-align:center; white-space:nowrap; }
+  #status { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 64px); transform:translateX(-50%);
+    background:var(--panel); padding:8px 14px; border-radius:999px; font-size:12px; color:var(--dim); display:none; pointer-events:none; white-space:nowrap; }
   .screen { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px;
-    padding:24px; text-align:center; background:radial-gradient(ellipse at 50% 30%, rgba(60,48,30,.75), rgba(10,8,6,.95)); }
+    padding:24px; text-align:center; background:radial-gradient(ellipse at 50% 25%, rgba(54,44,28,.8), rgba(8,7,5,.97)); }
   .screen.show { display:flex; }
-  h1 { margin:0; font-size:44px; letter-spacing:2px; font-weight:900; }
+  h1 { margin:0; font-size:46px; letter-spacing:2px; font-weight:900; }
   h1 span { color:var(--accent); }
-  p.lead { margin:0; max-width:420px; color:var(--dim); line-height:1.45; }
-  .btn { font-family:inherit; font-size:18px; font-weight:800; border:0; border-radius:14px; padding:15px 26px; min-width:240px;
+  p.lead { margin:0; max-width:430px; color:var(--dim); line-height:1.5; font-size:15px; }
+  .btn { font-family:inherit; font-size:17px; font-weight:800; border:0; border-radius:14px; padding:15px 26px; min-width:240px;
     background:var(--accent); color:#1b1408; cursor:pointer; box-shadow:0 6px 0 #9c6a1c; }
   .btn:active { transform:translateY(3px); box-shadow:0 3px 0 #9c6a1c; }
-  .btn.ghost { background:transparent; color:var(--ink); box-shadow:none; border:1px solid rgba(255,255,255,.25); font-size:15px; padding:11px 18px; min-width:0; }
+  .btn.ghost { background:transparent; color:var(--ink); box-shadow:none; border:1px solid rgba(255,255,255,.25); font-size:14px; padding:11px 16px; min-width:0; }
   .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
-  .legend { display:grid; grid-template-columns:repeat(2, auto); gap:4px 14px; font-size:13px; color:var(--dim); margin-top:6px; }
-  .legend b { color:var(--ink); }
-  #killcam { max-width:min(92vw, 520px); max-height:46vh; border-radius:12px; border:2px solid rgba(255,255,255,.2); box-shadow:0 10px 30px rgba(0,0,0,.6); }
-  .stats { display:flex; gap:22px; }
-  .stats div { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:1.4px; }
-  .stats b { display:block; font-size:26px; color:var(--ink); letter-spacing:0; }
-  .foot { position:absolute; bottom:calc(env(safe-area-inset-bottom) + 10px); font-size:11px; color:#7d7260; }
+  .powered { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; font-size:11px; color:var(--dim); }
+  .pill { border:1px solid var(--line); border-radius:999px; padding:4px 9px; }
+  .pill b { color:#c9b5ff; }
+  .foot { position:absolute; bottom:calc(env(safe-area-inset-bottom) + 10px); left:16px; right:16px; font-size:11px; color:#7d7260; }
   .foot a { color:#a99b80; }
+  #scan { position:fixed; inset:0; display:none; pointer-events:none; }
+  #scan.show { display:block; }
+  #scanTop { position:absolute; top:calc(env(safe-area-inset-top) + 14px); left:0; right:0; text-align:center; text-shadow:0 2px 10px #000; }
+  #scanTitle { font-size:20px; font-weight:900; letter-spacing:.5px; }
+  #scanHint { font-size:13px; color:var(--dim); margin-top:4px; }
+  #sweep { margin:10px auto 0; width:min(70vw,320px); height:6px; border-radius:6px; background:rgba(255,255,255,.15); overflow:hidden; }
+  #sweep i { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--rf),#c9b5ff); transition:width .2s; }
+  #models { position:absolute; left:0; right:0; top:calc(env(safe-area-inset-top) + 98px); display:flex; justify-content:center; gap:6px; flex-wrap:wrap; padding:0 10px; }
+  .model { font-size:11px; padding:5px 9px; border-radius:999px; background:var(--panel); border:1px solid var(--line); color:var(--dim); }
+  .model.busy { border-color:var(--rf); color:#e3d8ff; animation: pulse 1s infinite; }
+  .model.done { border-color:#3fb98c; color:#bff3df; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 4px rgba(138,92,246,.25); } }
+  #frames { position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 14px); display:flex; justify-content:center; gap:8px; }
+  .fcard { width:96px; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; font-size:10px; color:var(--dim); text-align:left; }
+  .fcard canvas { display:block; width:96px; height:64px; background:#222; }
+  .fcard div { padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fcard.done { border-color:#3fb98c; }
+  #analysis { position:fixed; left:0; right:0; bottom:0; display:none; max-height:52vh; overflow:auto;
+    background:linear-gradient(180deg, rgba(15,14,11,0), rgba(15,14,11,.93) 12%, rgba(15,14,11,.97));
+    padding: 24px 16px calc(env(safe-area-inset-bottom) + 16px); }
+  #analysis.show { display:block; }
+  #anaHead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  #anaHead h2 { margin:0; font-size:17px; }
+  #anaStats { font-size:11px; color:var(--dim); }
+  #tabs { display:flex; gap:6px; margin:10px 0; flex-wrap:wrap; }
+  #brief { display:grid; grid-template-columns: 1fr; gap:6px; margin:6px 0 12px; }
+  .sp { display:flex; align-items:center; gap:10px; background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:10px; padding:7px 10px; text-align:left; }
+  .sp canvas { width:40px; height:40px; flex:none; }
+  .sp .t { font-weight:700; font-size:14px; }
+  .sp .r { font-size:12px; color:var(--dim); }
+  .sp.off { opacity:.4; }
+  .sp .pts { margin-left:auto; font-weight:800; color:var(--accent); font-size:13px; white-space:nowrap; }
+  .warn { font-size:12px; color:#ffd59a; margin:4px 0; }
+  #anaGo { width:100%; }
+  #killcam { max-width:min(92vw, 520px); max-height:42vh; border-radius:12px; border:2px solid rgba(255,255,255,.2); box-shadow:0 10px 30px rgba(0,0,0,.6); }
+  .stats { display:flex; gap:18px; flex-wrap:wrap; justify-content:center; }
+  .stats div { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:1.4px; }
+  .stats b { display:block; font-size:24px; color:var(--ink); letter-spacing:0; }
+  @media (min-width: 900px) {
+    #analysis { left:auto; right:16px; bottom:16px; width:400px; max-height:calc(100vh - 32px); border-radius:16px; background:var(--panel); border:1px solid var(--line); padding:16px; }
+  }
 </style>
 </head>
 <body>
-<div id="stage">
-  <canvas id="view"></canvas>
-  <video id="cam" playsinline muted autoplay></video>
-</div>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
 
 <div id="hud">
   <div><div class="small">Score</div><div class="big" id="score">0</div><div class="small" id="streak"></div></div>
-  <div style="text-align:right"><div class="small">Time</div><div class="big" id="timer">60</div><div class="small" id="ammo"></div></div>
+  <div style="text-align:right"><div class="small">Time</div><div class="big" id="timer">75</div><div class="small" id="ammo"></div></div>
 </div>
 <div id="reticle"><svg viewBox="-32 -32 64 64">
-  <circle r="18" fill="none" stroke="#fff" stroke-width="2"/>
-  <line x1="-30" y1="0" x2="-9" y2="0" stroke="#fff" stroke-width="2"/><line x1="9" y1="0" x2="30" y2="0" stroke="#fff" stroke-width="2"/>
-  <line x1="0" y1="-30" x2="0" y2="-9" stroke="#fff" stroke-width="2"/><line x1="0" y1="9" x2="0" y2="30" stroke="#fff" stroke-width="2"/>
-  <circle r="1.8" fill="#e0483c"/></svg></div>
+  <circle r="17" fill="none" stroke="#fff" stroke-width="1.6"/>
+  <line x1="-30" y1="0" x2="-8" y2="0" stroke="#fff" stroke-width="1.6"/><line x1="8" y1="0" x2="30" y2="0" stroke="#fff" stroke-width="1.6"/>
+  <line x1="0" y1="-30" x2="0" y2="-8" stroke="#fff" stroke-width="1.6"/><line x1="0" y1="8" x2="0" y2="30" stroke="#fff" stroke-width="1.6"/>
+  <circle r="1.6" fill="#e0483c"/></svg></div>
 <div id="toast"></div>
 <div id="status"></div>
-<div id="toolbar"><button class="chip" id="btnMasks">Show cover</button><button class="chip" id="btnRescan">Rescan</button></div>
+<div id="toolbar"><button class="chip" id="btnVision">Vision: off</button></div>
+
+<div id="scan">
+  <div id="scanTop">
+    <div id="scanTitle">Scan your hunting ground</div>
+    <div id="scanHint">Slowly pan across the trees and bushes</div>
+    <div id="sweep"><i></i></div>
+  </div>
+  <div id="models">
+    <span class="model" data-m="sam">SAM 3 · segmentation</span>
+    <span class="model" data-m="depth">Depth Anything v3 · depth</span>
+    <span class="model" data-m="det">RF-DETR · detection</span>
+  </div>
+  <div id="frames"></div>
+</div>
+
+<div id="analysis">
+  <div id="anaHead"><h2>Roboflow scene analysis</h2><span id="anaStats" class="mono"></span></div>
+  <div id="tabs">
+    <button class="chip on" data-layer="seg">Segments</button>
+    <button class="chip" data-layer="depth">Depth</button>
+    <button class="chip" data-layer="det">Objects</button>
+    <button class="chip" data-layer="all">All</button>
+  </div>
+  <div id="warns"></div>
+  <div id="brief"></div>
+  <button class="btn" id="anaGo">Start the hunt</button>
+</div>
 
 <section class="screen show" id="home">
   <h1>ONE <span>SHOT</span></h1>
-  <p class="lead">Point your camera at trees, bushes, rocks or a bench. Animals hide behind the real things in your view. You get <b>one bullet per animal</b> — miss and it's gone.</p>
-  <div class="legend">
-    <span>🐇 <b>Rabbit</b> 100</span><span>🦊 <b>Fox</b> 250</span><span>🦌 <b>Deer</b> 400</span><span>✨ <b>Silver stag</b> 1500</span>
-  </div>
-  <button class="btn" id="btnCamera">Start hunting (camera)</button>
+  <p class="lead">Scan the real world around you. Roboflow maps every tree, bush and bench, how far away it is, and what's moving around. The hunt is built on top of it. <b>One bullet per animal.</b></p>
+  <div class="powered"><span class="pill"><b>SAM 3</b> segmentation</span><span class="pill"><b>Depth Anything v3</b> depth</span><span class="pill"><b>RF-DETR</b> detection</span></div>
+  <button class="btn" id="btnCamera">Scan &amp; hunt (camera)</button>
   <div class="row">
     <button class="btn ghost" id="btnPhoto">Use a photo</button>
-    <button class="btn ghost" data-demo="/demo/park-bench.jpg">Demo: park bench</button>
-    <button class="btn ghost" data-demo="/demo/two-trees.jpg">Demo: two trees</button>
+    <button class="btn ghost" data-demo="park-bench">Demo: park bench</button>
+    <button class="btn ghost" data-demo="two-trees">Demo: two trees</button>
   </div>
   <input type="file" id="file" accept="image/*" hidden />
-  <div class="foot">Scene understanding by <a href="https://roboflow.com" target="_blank" rel="noopener">Roboflow</a> · SAM 3</div>
+  <div class="foot">Scene understanding by <a href="https://roboflow.com" target="_blank" rel="noopener">Roboflow Workflows</a> · wildlife photos CC0 (WordPress Photo Directory), cut out with SAM 3</div>
 </section>
 
 <section class="screen" id="over">
-  <div class="small" style="color:var(--dim);letter-spacing:2px;text-transform:uppercase;font-size:12px">Round over</div>
+  <div style="color:var(--dim);letter-spacing:2px;text-transform:uppercase;font-size:12px">Round over</div>
   <h1 id="finalScore">0</h1>
-  <div class="stats"><div>Hits<b id="stHits">0</b></div><div>Accuracy<b id="stAcc">0%</b></div><div>Best streak<b id="stStreak">0</b></div></div>
+  <div class="stats"><div>Tagged<b id="stHits">0</b></div><div>Accuracy<b id="stAcc">0%</b></div><div>Best streak<b id="stStreak">0</b></div><div>Longest<b id="stLong">–</b></div></div>
   <img id="killcam" alt="Kill cam of your best shot" />
+  <div class="row"><button class="btn" id="btnShare">Share kill cam</button></div>
   <div class="row">
-    <button class="btn" id="btnShare">Share kill cam</button>
-  </div>
-  <div class="row">
-    <button class="btn ghost" id="btnAgain">Play again</button>
+    <button class="btn ghost" id="btnAgain">Hunt again</button>
+    <button class="btn ghost" id="btnRescan">New scan</button>
     <button class="btn ghost" id="btnHome">Home</button>
   </div>
 </section>
 
+<script src="/sprites.js"></script>
 <script src="/game.js"></script>
 </body>
 </html>
