@@ -19,14 +19,19 @@ const KIND = {
 };
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "POST only" });
-  }
   const key = process.env.ROBOFLOW_API_KEY;
   if (!key) return res.status(500).json({ error: "ROBOFLOW_API_KEY not set" });
 
   let body = req.body;
+  if (req.method === "GET" && req.query && req.query.demo) {
+    // Health check: GET /api/scan?demo=park-bench scans a bundled demo scene.
+    const r = await fetch(`https://${req.headers.host}/api/img?name=${encodeURIComponent(req.query.demo)}`);
+    if (!r.ok) return res.status(502).json({ error: "demo image unavailable" });
+    body = { image: Buffer.from(await r.arrayBuffer()).toString("base64") };
+  } else if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "POST only (or GET ?demo=park-bench)" });
+  }
   if (typeof body === "string") {
     try { body = JSON.parse(body); } catch { body = {}; }
   }
