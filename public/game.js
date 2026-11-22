@@ -19,8 +19,8 @@
     squirrel: { name: "Grey squirrel",  spr: "squirrel", realH: 0.27, minPx: 36, pts: 150, win: 2.6 },
     sparrow:  { name: "Sparrow",        spr: "sparrow",  realH: 0.16, minPx: 32, pts: 200, win: 2.6 },
     buck:     { name: "Buck",           spr: "buck",     realH: 1.05, minPx: 70, pts: 400, win: 2.3 },
-    tern:     { name: "Tern",           spr: "tern",     realH: 0.42, minPx: 52, pts: 300, win: 0 },
-    whimbrel: { name: "Whimbrel",       spr: "whimbrel", realH: 0.50, minPx: 56, pts: 300, win: 0 },
+    tern:     { name: "Tern",           spr: "tern",     realH: 0.42, minPx: 110, pts: 300, win: 0 },
+    whimbrel: { name: "Whimbrel",       spr: "whimbrel", realH: 0.50, minPx: 120, pts: 300, win: 0 },
     ghost:    { name: "Ghost squirrel", spr: "ghost",    realH: 0.36, minPx: 52, pts: 1500, win: 1.5 },
   };
   const KIND_LABEL = { trunk: "tree trunk", bush: "bush", rock: "rock", bench: "bench", fence: "fence", log: "log", stump: "stump", sky: "sky" };
@@ -236,16 +236,17 @@
   }
 
   // ---------------- Scan phase ----------------
-  const scanState = { start: 0, last: 0, lastYaw: null, max: 1, done: false };
+  const scanState = { start: 0, last: 0, lastYaw: null, max: 1, done: false, finish: false };
   function beginScan() {
     S.phase = "scan"; S.frames = []; S.primary = null; S.pending = 0;
     show(null); hideGameUI();
     ui.scan.classList.add("show"); ui.frames.innerHTML = ""; ui.sweep.style.width = "0%";
     setModels("");
-    scanState.start = performance.now(); scanState.last = 0; scanState.lastYaw = null; scanState.done = false;
-    scanState.max = S.source === "camera" && S.gyro ? 3 : 1;
+    scanState.start = performance.now(); scanState.last = 0; scanState.lastYaw = null; scanState.done = false; scanState.finish = false;
+    scanState.max = S.source === "camera" ? 8 : 1;
+    const done = $("scanDone"); done.style.display = S.source === "camera" ? "block" : "none"; done.disabled = true; done.textContent = "Finish scan";
     ui.scanTitle.textContent = S.source === "camera" ? "Scan your hunting ground" : "Analyzing your scene";
-    ui.scanHint.textContent = S.source === "camera" ? (scanState.max > 1 ? "Slowly pan left → right across trees and bushes" : "Hold steady on trees, bushes, a bench…") : "Sending it to Roboflow";
+    ui.scanHint.textContent = S.source === "camera" ? (S.gyro ? "Slowly pan around — trees, bushes, benches, fences. Tap Finish when you're done." : "Point at trees, bushes, a bench… tap Finish when you're done.") : "Sending it to Roboflow";
     loadSprites();
   }
   function setModels(state) { for (const el of document.querySelectorAll(".model")) { el.classList.toggle("busy", state === "busy"); el.classList.toggle("done", state === "done"); } }
@@ -257,20 +258,29 @@
       const yaw = S.orient ? S.orient.a : null;
       const moved = scanState.lastYaw == null || yaw == null ? 0 : Math.abs(angDiff(yaw, scanState.lastYaw));
       const first = n === 0 && elapsed > (S.source === "camera" ? 900 : 100);
-      if (first || (n > 0 && since > 1300 && (moved > 16 || since > 2600))) {
+      if (!scanState.finish && (first || (n > 0 && since > 1400 && (moved > 14 || since > (S.gyro ? 2400 : 2800))))) {
         scanState.last = now; scanState.lastYaw = yaw;
         captureForScan();
       }
     }
+    const returned = S.frames.filter((f) => f.scene).length;
     const cap = S.frames.length / scanState.max, ret = S.frames.filter((f) => f.scene || f.failed).length / scanState.max;
     ui.sweep.style.width = Math.round((cap * 0.5 + ret * 0.5) * 100) + "%";
-    if (S.frames.length >= scanState.max && S.pending === 0) {
+    if (S.source === "camera") {
+      const done = $("scanDone");
+      done.disabled = returned < 1;
+      done.textContent = scanState.finish ? (S.pending ? "Finishing… Roboflow still analyzing" : "Finishing…")
+        : returned < 1 ? "Scanning… (first frame analyzing)" : `Finish scan · ${S.frames.length} frame${S.frames.length > 1 ? "s" : ""}`;
+    }
+    const enough = S.source !== "camera" || scanState.finish || S.frames.length >= scanState.max;
+    if (enough && S.frames.length && S.pending === 0) {
       scanState.done = true;
       const ok = S.frames.filter((f) => f.scene);
       if (!ok.length) { status("Roboflow scan failed — check connection and retry", 4000); setTimeout(goHome, 2500); return; }
       S.frames = ok;
       S.primary = ok[ok.length - 1];
       setModels("done");
+      $("scanDone").style.display = "none";
       setTimeout(enterAnalysis, 450);
     }
   }
@@ -488,7 +498,7 @@
     const L = K[K.length - 1]; return { x: L.x, y: L.y, moving: false, dx: 0, dy: 0, done: true };
   }
   function occludersFor(a) {
-    if (!a.fr) return [];
+    if (!a.fr || a.flyer) return []; // birds fly over the cover: always in view
     const ax0 = a.cur ? a.cur.x - a.wN : 0, ax1 = a.cur ? a.cur.x + a.wN : 1;
     return a.fr.covers.filter((l) => l !== (a.perch ? a.anchor : null) && l.depth > a.depth + 0.035 && l.box.x < ax1 && l.box.x + l.box.w > ax0);
   }
@@ -568,25 +578,28 @@
   }
   function openGround(fr, sp) {
     const y = rand(0.74, 0.93), side = Math.random() < 0.5 ? 1 : -1;
+    const c = cover(), v0 = fromScreen(fr, 0, 0, c)[0], v1 = fromScreen(fr, S.W, 0, c)[0];
     const { hN, d } = animalSizeN(fr, sp, 0.5, y);
     const a = mkAnimal(fr, sp, [], { hN, dist: d, depth: depthAt(fr, 0.5, y) });
     a.wN = wNorm(fr, sp, hN);
-    const x0 = side > 0 ? -a.wN : 1 + a.wN, x1 = side > 0 ? 1 + a.wN : -a.wN;
-    const dur = sp === "buck" ? 3.6 : 3.2, hops = sp === "buck" ? 4 : 7;
+    const x0 = side > 0 ? v0 - a.wN : v1 + a.wN, x1 = side > 0 ? v1 + a.wN : v0 - a.wN;
+    const dur = (sp === "buck" ? 3.6 : 3.2) * clamp((v1 - v0) * 1.1, 0.6, 1), hops = sp === "buck" ? 4 : 7;
     const K = [{ t: 0, x: x0, y }];
     for (let i = 1; i <= hops; i++) K.push({ t: (dur * i) / hops, x: lerp(x0, x1, i / hops), y, hop: sp === "buck" ? 0.18 : 0.22, e: "lin" });
     a.keys = K; a.face = side; a.side = side; a.shootFrom = 0; a.shootUntil = dur; a.check = { x: 0.5, y };
     return a;
   }
   function flyover(fr, sp, delay = 0, laneY) {
-    const skyY = clamp(laneY ?? rand(0.08, 0.3) - S.brief.skyLift, 0.04, 0.45);
+    const skyY = clamp(laneY ?? rand(0.14, 0.34) - S.brief.skyLift, 0.1, 0.45);
     const side = Math.random() < 0.5 ? 1 : -1;
-    const d = rand(14, 26);
+    const d = rand(7, 12);
     const { hN } = animalSizeN(fr, sp, 0.5, skyY, d);
-    const a = mkAnimal(fr, sp, [], { hN, dist: d, depth: 0.08, flyer: true });
+    const a = mkAnimal(fr, sp, [], { hN, dist: d, depth: 1.5, flyer: true });
     a.wN = wNorm(fr, sp, hN);
-    const x0 = side > 0 ? -a.wN : 1 + a.wN, x1 = side > 0 ? 1 + a.wN : -a.wN;
-    const dur = rand(3.4, 4.4);
+    // fly across what's actually on screen (portrait phones crop a lot of the frame)
+    const c = cover(), v0 = fromScreen(fr, 0, 0, c)[0], v1 = fromScreen(fr, S.W, 0, c)[0];
+    const x0 = side > 0 ? v0 - a.wN * 0.6 : v1 + a.wN * 0.6, x1 = side > 0 ? v1 + a.wN * 0.6 : v0 - a.wN * 0.6;
+    const dur = rand(5.2, 6.6) * clamp((v1 - v0) * 1.2, 0.6, 1);
     a.keys = [{ t: 0, x: x0, y: skyY + rand(0.02, 0.06) }, { t: dur, x: x1, y: skyY + rand(-0.04, 0.03), e: "lin", c: [0.5, skyY - rand(0.03, 0.08)] }];
     a.face = side; a.side = side; a.shootFrom = 0.2; a.shootUntil = dur - 0.2; a.born += delay * 1000; a.check = { x: 0.5, y: skyY };
     return a;
@@ -655,9 +668,9 @@
     while (R.flyovers.length && t >= R.flyovers[0]) {
       R.flyovers.shift();
       const fr = currentFrame();
-      const n = Math.random() < 0.5 ? 2 : 3, lane = rand(0.08, 0.26);
+      const n = Math.random() < 0.5 ? 2 : 3, lane = rand(0.16, 0.32);
       tell({ fr, kind: "call", x: 0.5, y: lane, dur: 1.0, then: () => {
-        for (let i = 0; i < n; i++) S.animals.push(flyover(fr, i % 2 ? "whimbrel" : "tern", i * rand(0.45, 0.8), lane + rand(-0.05, 0.05)));
+        for (let i = 0; i < n; i++) S.animals.push(flyover(fr, i % 2 ? "whimbrel" : "tern", i * rand(0.9, 1.4), lane + rand(-0.07, 0.07)));
       } });
     }
     if (R.ghostAt != null && t >= R.ghostAt && !busyGround()) {
@@ -692,9 +705,8 @@
   }
   function nearPerson(f, l) { return f.dets.some((d) => d.cls === "person" && d.box.x < l.box.x + l.box.w + 0.05 && d.box.x + d.box.w > l.box.x - 0.05); }
   function onScreenish(f, l) {
-    if (S.source !== "camera" || !S.gyro) return true;
     const c = cover(); const [x] = toScreen(f, l.box.x + l.box.w / 2, 0.5, c);
-    return x > -S.W * 0.2 && x < S.W * 1.2;
+    return x > S.W * 0.05 && x < S.W * 0.95;
   }
   function planEncounter() {
     const enabled = S.brief.sp.filter((s) => s.on && ["rabbit", "squirrel", "sparrow", "buck"].includes(s.k)).map((s) => s.k);
@@ -740,7 +752,7 @@
       if ((a.state === "leave" || a.state === "flee") && p.done) a.state = "gone";
       if (a.flyer && p.done) a.state = "gone";
       if (a.flyer && (a.state === "flee" || a.state === "leave")) { // climb away
-        a.keys = [{ t, x: p.x, y: p.y }, { t: t + 1.1, x: p.x + a.face * 0.5, y: p.y - 0.4, e: "i" }]; a.state = "leaving2";
+        a.keys = [{ t, x: p.x, y: p.y }, { t: t + 1.1, x: p.x + a.face * 0.35, y: p.y - 0.4, e: "i" }]; a.state = "leaving2";
       }
       if (a.state === "leaving2" && p.done) a.state = "gone";
     }
@@ -800,7 +812,8 @@
     let u = (x - (fx - w / 2)) / w, v = (y - (fy - h)) / h;
     if (u < -0.08 || u > 1.08 || v < -0.08 || v > 1.08) return false;
     if (flipFor(a, s)) u = 1 - u;
-    const pad = 0.06;
+    if (a.flyer) { const du = (u - 0.5) / 0.55, dv = (v - 0.5) / 0.6; if (du * du + dv * dv <= 1) return true; }
+    const pad = a.flyer ? 0.12 : 0.06;
     for (const poly of s.polys) {
       if (inPoly(u, v, poly)) return true;
       for (const [du, dv] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) if (inPoly(u + du, v + dv, poly)) return true;
@@ -1138,4 +1151,7 @@
   $("btnAgain").onclick = () => { show(null); startHunt(); };
   $("btnRescan").onclick = () => { show(null); if (S.source === "camera") beginScan(); else beginScan(); };
   $("btnHome").onclick = goHome;
+  $("scanDone").onclick = () => { if (S.frames.some((f) => f.scene)) scanState.finish = true; };
+  $("anaRescan").onclick = () => { stopTour(); ui.analysis.classList.remove("show"); beginScan(); };
+  $("btnHuntRescan").onclick = (e) => { e.stopPropagation(); ambience(false); S.round = null; beginScan(); };
 })();
