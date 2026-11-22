@@ -1,0 +1,7 @@
+{
+  "outputDirectory": "public",
+  "functions": { "api/scan.js": { "maxDuration": 30 } },
+  "headers": [
+    { "source": "/(.*)", "headers": [ { "key": "Permissions-Policy", "value": "camera=(self), accelerometer=(self), gyroscope=(self)" } ] }
+  ]
+}
