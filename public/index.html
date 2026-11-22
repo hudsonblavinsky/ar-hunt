@@ -67,12 +67,30 @@
   .fcard canvas { display:block; width:96px; height:64px; background:#222; }
   .fcard div { padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .fcard.done { border-color:#3fb98c; }
-  #analysis { position:fixed; left:0; right:0; bottom:0; display:none; max-height:52vh; overflow:auto;
+  #analysis { position:fixed; left:0; right:0; bottom:0; display:none; max-height:46vh; overflow:auto;
     background:linear-gradient(180deg, rgba(15,14,11,0), rgba(15,14,11,.93) 12%, rgba(15,14,11,.97));
     padding: 24px 16px calc(env(safe-area-inset-bottom) + 16px); }
   #analysis.show { display:block; }
   #anaHead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
   #anaHead h2 { margin:0; font-size:17px; }
+  #anaToggle { margin-left:auto; }
+  .sect { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:1.4px; margin:12px 0 6px; display:flex; justify-content:space-between; }
+  #anaFrames { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; }
+  .athumb { flex:none; width:84px; border:2px solid transparent; border-radius:8px; overflow:hidden; cursor:pointer; background:#222; position:relative; }
+  .athumb.on { border-color:var(--rf); }
+  .athumb canvas { display:block; width:84px; height:56px; }
+  .athumb span { position:absolute; left:4px; bottom:3px; font-size:10px; font-weight:800; text-shadow:0 1px 3px #000; }
+  #objList { display:flex; flex-direction:column; gap:4px; }
+  .obj { display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.03); cursor:pointer; font-size:13px; text-align:left; }
+  .obj.on { border-color:var(--rf); background:rgba(138,92,246,.18); }
+  .obj i { width:10px; height:10px; border-radius:3px; flex:none; }
+  .obj b { font-weight:700; }
+  .obj .m { margin-left:auto; color:var(--dim); font-size:11px; white-space:nowrap; text-align:right; }
+  .obj .src { font-size:10px; color:#c9b5ff; }
+  #objFilter { display:flex; gap:6px; }
+  #objFilter .chip { padding:4px 9px; font-size:11px; }
+  #analysis.min #anaBody { display:none; }
+  #analysis.min { max-height:none; }
   #anaStats { font-size:11px; color:var(--dim); }
   #tabs { display:flex; gap:6px; margin:10px 0; flex-wrap:wrap; }
   #brief { display:grid; grid-template-columns: 1fr; gap:6px; margin:6px 0 12px; }
@@ -126,15 +144,28 @@
 </div>
 
 <div id="analysis">
-  <div id="anaHead"><h2>Roboflow scene analysis</h2><span id="anaStats" class="mono"></span></div>
+  <div id="anaHead"><h2>Roboflow scene analysis</h2><button class="chip" id="anaToggle">▾ Hide</button></div>
+  <div id="anaStats" class="mono" style="margin-top:4px"></div>
   <div id="tabs">
     <button class="chip on" data-layer="seg">Segments</button>
     <button class="chip" data-layer="depth">Depth</button>
     <button class="chip" data-layer="det">Objects</button>
     <button class="chip" data-layer="all">All</button>
   </div>
+  <div id="anaBody">
+  <div class="sect"><span>Scanned frames</span><span id="frameLabel"></span></div>
+  <div id="anaFrames"></div>
+  <div class="sect"><span>Everything Roboflow found</span><span id="objCount"></span></div>
+  <div id="objFilter">
+    <button class="chip on" data-f="all">All</button>
+    <button class="chip" data-f="seg">SAM 3 segments</button>
+    <button class="chip" data-f="det">RF-DETR objects</button>
+  </div>
+  <div id="objList" style="margin-top:6px"></div>
+  <div class="sect"><span>Your hunt</span></div>
   <div id="warns"></div>
   <div id="brief"></div>
+  </div>
   <button class="btn" id="anaGo">Start the hunt</button>
   <div class="row" style="margin-top:10px"><button class="btn ghost" id="anaRescan">↻ Rescan this spot</button></div>
 </div>

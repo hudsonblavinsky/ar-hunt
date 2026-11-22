@@ -66,7 +66,8 @@
   const lerp = (a, b, t) => a + (b - a) * t;
   const ease = { lin: (u) => u, i: (u) => u * u, o: (u) => 1 - (1 - u) * (1 - u), io: (u) => 0.5 - Math.cos(Math.PI * u) / 2 };
 
-  function srcEl() { return S.phase === "analysis" && S.source === "camera" && S.primary ? S.primary.canvas : (S.source === "camera" ? video : S.img); }
+  function viewFrame() { return S.frames[S.view] || S.primary; }
+  function srcEl() { return S.phase === "analysis" && S.source === "camera" && viewFrame() ? viewFrame().canvas : (S.source === "camera" ? video : S.img); }
   function srcSize() {
     const el = srcEl();
     if (!el) return [1, 1];
@@ -320,6 +321,9 @@
     ui.scan.classList.remove("show");
     S.brief = buildBrief();
     renderBrief();
+    S.view = Math.max(0, S.frames.indexOf(S.primary)); S.focus = null; S.objFilter = "all";
+    ui.analysis.classList.remove("min"); $("anaToggle").textContent = "▾ Hide";
+    renderFrameStrip(); renderObjects();
     setTab("seg");
     ui.analysis.classList.add("show");
     // auto-tour the layers once
@@ -386,8 +390,79 @@
     }
   }
 
+  // ---- browsable scene: frames strip + full object list + tap-to-highlight
+  function objectsOf(fr) {
+    const segs = fr.covers.map((l, i) => ({ type: "seg", i, l, label: KIND_LABEL[l.kind], conf: l.conf, color: KIND_COLOR[l.kind], d: l.m && l.m.d, h: l.m && l.m.h }));
+    const dets = fr.dets.map((d, i) => ({ type: "det", i, det: d, label: d.cls, conf: d.conf, color: "#3fe0a8", d: d.dist, h: (d.dist * d.box.h) / fN(fr) }));
+    const sky = fr.sky.map((l, i) => ({ type: "sky", i, l, label: "sky", conf: l.conf, color: KIND_COLOR.sky }));
+    return { segs, dets, sky };
+  }
+  function renderFrameStrip() {
+    const el = $("anaFrames"); el.innerHTML = "";
+    S.frames.forEach((fr, i) => {
+      const t = document.createElement("div"); t.className = "athumb" + (i === S.view ? " on" : "");
+      const cv = document.createElement("canvas"); cv.width = 168; cv.height = 112; t.appendChild(cv);
+      t.insertAdjacentHTML("beforeend", `<span>#${i + 1} · ${fr.covers.length + fr.dets.length}</span>`);
+      drawThumb(cv, fr);
+      t.onclick = () => { S.view = i; S.focus = null; S.anaT0 = performance.now(); stopTour(); renderFrameStrip(); renderObjects(); };
+      el.appendChild(t);
+    });
+    $("frameLabel").textContent = S.frames.length > 1 ? `frame ${S.view + 1} of ${S.frames.length}` : "";
+    $("anaFrames").parentElement && ($("anaFrames").style.display = S.frames.length > 1 ? "flex" : "flex");
+  }
+  function renderObjects() {
+    const fr = viewFrame(), { segs, dets, sky } = objectsOf(fr), f = S.objFilter || "all";
+    const list = (f === "seg" ? segs : f === "det" ? dets : [...segs, ...dets, ...sky]).slice().sort((a, b) => (a.d ?? 999) - (b.d ?? 999));
+    $("objCount").textContent = `${segs.length} segments · ${dets.length} objects`;
+    for (const b of document.querySelectorAll("#objFilter .chip")) b.classList.toggle("on", b.dataset.f === f);
+    const el = $("objList"); el.innerHTML = "";
+    if (!list.length) el.innerHTML = `<div class="r" style="color:var(--dim);font-size:12px">Nothing in this category for this frame.</div>`;
+    for (const o of list) {
+      const row = document.createElement("div");
+      row.className = "obj" + (S.focus && S.focus.type === o.type && S.focus.i === o.i ? " on" : "");
+      const src = o.type === "det" ? "RF-DETR" : "SAM 3";
+      const meas = o.d != null ? `${fmtM(o.d)} away${o.h ? ` · ${fmtM(o.h)} tall` : ""}` : "";
+      row.innerHTML = `<i style="background:${o.color}"></i><div><b>${o.label}</b> <span style="color:var(--dim)">${o.conf.toFixed(2)}</span><div class="src">${src}</div></div><div class="m">${meas}</div>`;
+      row.onclick = () => { stopTour(); S.focus = (S.focus && S.focus.type === o.type && S.focus.i === o.i) ? null : { type: o.type, i: o.i }; S.focusT = performance.now(); if (S.layer === "depth") setTab("all"); renderObjects(); };
+      el.appendChild(row);
+    }
+  }
+  function focusObj(fr) {
+    if (!S.focus) return null;
+    const { segs, dets, sky } = objectsOf(fr);
+    return (S.focus.type === "seg" ? segs : S.focus.type === "det" ? dets : sky)[S.focus.i] || null;
+  }
+  function drawFocus(fr, c, now) {
+    const o = focusObj(fr); if (!o) return;
+    const pulse = 0.5 + 0.5 * Math.sin((now - (S.focusT || 0)) / 180);
+    let path;
+    if (o.type === "det") {
+      const [x0, y0] = toScreen(fr, o.det.box.x, o.det.box.y, c), [x1, y1] = toScreen(fr, o.det.box.x + o.det.box.w, o.det.box.y + o.det.box.h, c);
+      path = new Path2D(); path.rect(x0, y0, x1 - x0, y1 - y0);
+    } else path = screenPath(fr, o.l.poly, c);
+    ctx.save();
+    const dim = new Path2D(); dim.rect(0, 0, S.W, S.H); dim.addPath(path);
+    ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fill(dim, "evenodd");
+    ctx.lineWidth = 3 + pulse * 2; ctx.strokeStyle = o.color; ctx.shadowColor = o.color; ctx.shadowBlur = 12; ctx.stroke(path);
+    ctx.restore();
+    const box = o.type === "det" ? o.det.box : o.l.box;
+    const [tx, ty] = toScreen(fr, box.x + box.w / 2, box.y, c);
+    const meas = o.d != null ? `${fmtM(o.d)} away${o.h ? ` · ${fmtM(o.h)} tall` : ""}` : "no ground contact";
+    tag(tx, Math.max(ty - 22, 56), `${o.label.toUpperCase()} · ${o.conf.toFixed(2)} · ${o.type === "det" ? "RF-DETR" : "SAM 3"}`, meas, o.color, 1);
+  }
+  function pickAt(x, y) {
+    const fr = viewFrame(), c = cover(), [nx, ny] = fromScreen(fr, x, y, c), { segs, dets } = objectsOf(fr);
+    const hitsDet = dets.filter((o) => nx >= o.det.box.x && nx <= o.det.box.x + o.det.box.w && ny >= o.det.box.y && ny <= o.det.box.y + o.det.box.h);
+    const hitsSeg = segs.filter((o) => inPoly(nx, ny, o.l.poly));
+    const area = (o) => (o.type === "det" ? o.det.box.w * o.det.box.h : o.l.box.w * o.l.box.h);
+    const all = [...hitsDet, ...hitsSeg].sort((a, b) => area(a) - area(b)); // smallest (most specific) first
+    S.focus = all.length ? { type: all[0].type, i: all[0].i } : null; S.focusT = performance.now();
+    stopTour(); renderObjects();
+    const on = document.querySelector("#objList .obj.on"); if (on) on.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
   function renderAnalysis(now) {
-    const c = cover(), fr = S.primary;
+    const c = cover(), fr = viewFrame();
     ctx.clearRect(0, 0, S.W, S.H);
     drawSource(c);
     const t = (now - S.anaT0) / 1000;
@@ -402,8 +477,9 @@
       }
       if (L === "depth") legendDepth();
     }
-    if (L === "seg" || L === "all") drawSegments(fr, c, L === "all" ? 99 : t, true);
+    if (L === "seg" || L === "all") drawSegments(fr, c, L === "all" ? 99 : t, !S.focus);
     if (L === "det" || L === "all") drawDetections(fr, c, L === "all" ? 99 : t);
+    drawFocus(fr, c, now);
     // header ribbon
     ctx.save();
     ctx.fillStyle = "rgba(15,14,11,.72)"; ctx.fillRect(0, 0, S.W, 34);
@@ -1127,6 +1203,7 @@
   canvas.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") { S.mouse = true; S.aim.x = e.clientX; S.aim.y = e.clientY; placeReticle(); } });
   canvas.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if (S.phase === "analysis") { pickAt(e.clientX, e.clientY); return; }
     if (S.phase !== "hunt") return;
     let x = S.W / 2, y = S.H / 2;
     if (e.pointerType === "mouse") { S.mouse = true; x = e.clientX; y = e.clientY; }
@@ -1151,6 +1228,8 @@
   $("btnAgain").onclick = () => { show(null); startHunt(); };
   $("btnRescan").onclick = () => { show(null); if (S.source === "camera") beginScan(); else beginScan(); };
   $("btnHome").onclick = goHome;
+  for (const b of document.querySelectorAll("#objFilter .chip")) b.onclick = () => { S.objFilter = b.dataset.f; S.focus = null; renderObjects(); };
+  $("anaToggle").onclick = () => { const m = ui.analysis.classList.toggle("min"); $("anaToggle").textContent = m ? "▴ Details" : "▾ Hide"; };
   $("scanDone").onclick = () => { if (S.frames.some((f) => f.scene)) scanState.finish = true; };
   $("anaRescan").onclick = () => { stopTour(); ui.analysis.classList.remove("show"); beginScan(); };
   $("btnHuntRescan").onclick = (e) => { e.stopPropagation(); ambience(false); S.round = null; beginScan(); };
